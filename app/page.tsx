@@ -10,6 +10,9 @@ const RETURN_RATES: Record<RiskProfile, number> = {
   aggressive: 0.08,
 };
 
+// 通膨率:每年 2%。把現值支出換算成退休當年的名目金額,並在退休後逐年複利成長
+const INFLATION_RATE: number = 0.02;
+
 const RISK_LABELS: Record<RiskProfile, string> = {
   conservative: '保守型',
   balanced: '穩健型',
@@ -20,6 +23,12 @@ const RISK_SUBTITLES: Record<RiskProfile, string> = {
   conservative: '重視穩定,少波動',
   balanced: '長期成長,可承受中度波動',
   aggressive: '追求最大化,可承受高波動',
+};
+
+const RISK_VOLATILITY: Record<RiskProfile, string> = {
+  conservative: '願意承受投資組合 ±10% 的波動',
+  balanced: '願意承受投資組合 ±20% 的波動',
+  aggressive: '願意承受投資組合 ±50% 以上的波動',
 };
 
 const LIFE_EXPECTANCY: Record<Gender, number> = {
@@ -63,18 +72,26 @@ function calculate(
     : annualContribution * ((Math.pow(1 + rate, yearsToRetire) - 1) / rate);
   const totalAtRetirement = Math.round(compoundedPresent + annuityFV);
 
-  const totalNeeded = monthlyExpense * 12 * yearsAfterRetire;
+  // 退休當年的月支出:把現值經通膨複利到退休那一年
+  const monthlyExpenseAtRetirement = monthlyExpense * Math.pow(1 + INFLATION_RATE, yearsToRetire);
+  const annualExpenseAtRetirement = monthlyExpenseAtRetirement * 12;
+
+  // 退休期間總需求:支出逐年隨通膨複利成長的名目總和
+  const totalNeeded = INFLATION_RATE === 0
+    ? annualExpenseAtRetirement * yearsAfterRetire
+    : annualExpenseAtRetirement * ((Math.pow(1 + INFLATION_RATE, yearsAfterRetire) - 1) / INFLATION_RATE);
   const gap = totalNeeded - totalAtRetirement;
   const readinessRatio = totalNeeded > 0
     ? Math.min(200, Math.round((totalAtRetirement / totalNeeded) * 100))
     : 0;
 
-  // 計算可撐到幾歲
+  // 計算可撐到幾歲:退休後資產續以報酬率成長,每年提領的金額逐年隨通膨增加
   let balance = totalAtRetirement;
-  const annualExpense = monthlyExpense * 12;
+  let annualExpense = annualExpenseAtRetirement;
   let age = retirementAge;
   while (balance > 0 && age < 100) {
     balance = balance * (1 + rate) - annualExpense;
+    annualExpense = annualExpense * (1 + INFLATION_RATE);
     age++;
   }
 
@@ -100,7 +117,9 @@ function generateTrajectory(
   const points: YearPoint[] = [];
   let balance = currentSavings;
   const annualContribution = monthlySaving * 12;
-  const annualExpense = monthlyExpense * 12;
+  const yearsToRetire = Math.max(0, retirementAge - currentAge);
+  // 退休當年的年支出(現值經通膨複利到退休年),退休後再逐年隨通膨成長
+  const annualExpenseAtRetirement = monthlyExpense * Math.pow(1 + INFLATION_RATE, yearsToRetire) * 12;
 
   for (let age = currentAge; age <= 100; age++) {
     if (age < retirementAge) {
@@ -108,6 +127,7 @@ function generateTrajectory(
       balance = balance * (1 + rate) + annualContribution;
     } else {
       points.push({ age, balance: Math.max(0, Math.round(balance)), phase: 'depletion' });
+      const annualExpense = annualExpenseAtRetirement * Math.pow(1 + INFLATION_RATE, age - retirementAge);
       balance = balance * (1 + rate) - annualExpense;
     }
   }
@@ -294,6 +314,9 @@ export default function Home() {
               <div className={`text-xs ${selectedRisk === profile || i === 1 ? 'text-white/70' : 'text-[#001E3D]/60'}`}>
                 {RISK_SUBTITLES[profile]}
               </div>
+              <div className={`text-xs mt-2 pt-2 border-t ${selectedRisk === profile || i === 1 ? 'text-white/60 border-white/20' : 'text-[#001E3D]/50 border-[#001E3D]/15'}`}>
+                {RISK_VOLATILITY[profile]}
+              </div>
             </button>
           ))}
         </div>
@@ -386,9 +409,9 @@ export default function Home() {
             <ul className="space-y-2 list-disc ml-5">
               <li>報酬率:保守型 2% / 穩健型 5% / 積極型 8% 年化(歷史參考,實際會有波動)</li>
               <li>平均餘命:內政部 2024 統計,男 77 / 女 84 歲</li>
-              <li>未計入通膨(若計入,實際所需金額會更高)</li>
+              <li>已計入通膨:每年 2%——你輸入的是現值,系統會自動換算成退休當年的名目月支出,且退休後每月支出逐年隨通膨複利成長</li>
               <li>未計入稅務、健保、長照等額外支出</li>
-              <li>退休後資產仍以同報酬率成長,每月固定提領</li>
+              <li>退休後資產仍以同報酬率成長,提領金額逐年隨通膨增加</li>
             </ul>
             <p className="mt-3 italic">這是教育性試算,不構成投資、保險或財務建議。</p>
           </div>
