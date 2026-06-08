@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+.font-serif {
+  font-family: var(--font-playfair), 'PingFang TC', 'Microsoft JhengHei', serif;
+}
+
+body {
+  font-family: 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
