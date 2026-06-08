@@ -39,7 +39,7 @@ const LIFE_EXPECTANCY: Record<Gender, number> = {
 interface Result {
   riskProfile: RiskProfile;
   totalAtRetirement: number;
-  totalNeeded: number;
+  needAtRetirement: number;
   gap: number;
   readinessRatio: number;
   canLastUntilAge: number;
@@ -76,14 +76,19 @@ function calculate(
   const monthlyExpenseAtRetirement = monthlyExpense * Math.pow(1 + INFLATION_RATE, yearsToRetire);
   const annualExpenseAtRetirement = monthlyExpenseAtRetirement * 12;
 
-  // 退休期間總需求:支出逐年隨通膨複利成長的名目總和
-  const totalNeeded = INFLATION_RATE === 0
-    ? annualExpenseAtRetirement * yearsAfterRetire
-    : annualExpenseAtRetirement * ((Math.pow(1 + INFLATION_RATE, yearsAfterRetire) - 1) / INFLATION_RATE);
-  const gap = totalNeeded - totalAtRetirement;
-  const readinessRatio = totalNeeded > 0
-    ? Math.min(200, Math.round((totalAtRetirement / totalNeeded) * 100))
-    : 0;
+  // 退休所需準備金(退休當年的現值):未來逐年隨通膨成長的支出,以投報率折現。
+  // 與下方「可撐到」的逐年模擬同一套假設,因此準備率與資產軌跡圖永遠一致:
+  // 準備率 ≥ 100% ⟺ 資產可撐到平均餘命(軌跡線不會在餘命前跌破 0)。
+  const discountRatio = (1 + INFLATION_RATE) / (1 + rate);
+  const needAtRetirement = yearsAfterRetire <= 0
+    ? 0
+    : Math.abs(1 - discountRatio) < 1e-9
+      ? (annualExpenseAtRetirement / (1 + rate)) * yearsAfterRetire
+      : (annualExpenseAtRetirement / (1 + rate)) * ((1 - Math.pow(discountRatio, yearsAfterRetire)) / (1 - discountRatio));
+  const gap = needAtRetirement - totalAtRetirement;
+  const readinessRatio = needAtRetirement > 0
+    ? Math.min(200, Math.round((totalAtRetirement / needAtRetirement) * 100))
+    : 200;
 
   // 計算可撐到幾歲:退休後資產續以報酬率成長,每年提領的金額逐年隨通膨增加
   let balance = totalAtRetirement;
@@ -98,7 +103,7 @@ function calculate(
   return {
     riskProfile,
     totalAtRetirement,
-    totalNeeded,
+    needAtRetirement,
     gap,
     readinessRatio,
     canLastUntilAge: age,
@@ -126,9 +131,12 @@ function generateTrajectory(
       points.push({ age, balance: Math.max(0, Math.round(balance)), phase: 'accumulation' });
       balance = balance * (1 + rate) + annualContribution;
     } else {
-      points.push({ age, balance: Math.max(0, Math.round(balance)), phase: 'depletion' });
+      // 退休期:不再對餘額設 0 下限,讓資金見底後跌破 0、累積赤字(用於紅色負向線)
+      points.push({ age, balance: Math.round(balance), phase: 'depletion' });
       const annualExpense = annualExpenseAtRetirement * Math.pow(1 + INFLATION_RATE, age - retirementAge);
-      balance = balance * (1 + rate) - annualExpense;
+      balance = balance >= 0
+        ? balance * (1 + rate) - annualExpense   // 仍有資產:續成長後提領
+        : balance - annualExpense;               // 已見底:赤字逐年累積(無投資成長)
     }
   }
   return points;
@@ -468,24 +476,61 @@ function LifetimeChart({
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
 
-  const maxBalance = Math.max(...data.map(p => p.balance), 1);
+  const COLOR_ACC = '#001E3D';   // 累積期
+  const COLOR_DEP = '#C9A961';   // 提領期(仍有資產)
+  const COLOR_NEG = '#C0392B';   // 資產見底後的赤字
+
+  const balances = data.map(p => p.balance);
+  const maxBalance = Math.max(...balances, 1);
+  const minBalance = Math.min(...balances, 0);
+  const valRange = (maxBalance - minBalance) || 1;
   const minAge = data[0].age;
   const maxAge = data[data.length - 1].age;
   const ageRange = maxAge - minAge || 1;
 
   const xScale = (age: number) => ((age - minAge) / ageRange) * innerWidth;
-  const yScale = (balance: number) => innerHeight - (balance / maxBalance) * innerHeight;
+  const yScale = (balance: number) => innerHeight - ((balance - minBalance) / valRange) * innerHeight;
+  const yZero = yScale(0);
 
   const accumulation = data.filter(p => p.phase === 'accumulation');
   const depletion = data.filter(p => p.phase === 'depletion');
 
+  // 把提領期切成「仍有資產(金色)」與「見底後(紅色)」兩段,並在跨越 0 的位置插入交點
+  const goldPts: { age: number; balance: number }[] = [];
+  const redPts: { age: number; balance: number }[] = [];
+  let crossAge: number | null = null;
+  let crossed = false;
+  for (let i = 0; i < depletion.length; i++) {
+    const p = depletion[i];
+    if (!crossed && p.balance < 0) {
+      crossed = true;
+      const prev = depletion[i - 1];
+      if (prev) {
+        const t = prev.balance / (prev.balance - p.balance);
+        crossAge = prev.age + t * (p.age - prev.age);
+        goldPts.push({ age: crossAge, balance: 0 });
+        redPts.push({ age: crossAge, balance: 0 });
+      } else {
+        crossAge = p.age;
+      }
+    }
+    if (!crossed) goldPts.push({ age: p.age, balance: p.balance });
+    else redPts.push({ age: p.age, balance: p.balance });
+  }
+
+  const toPath = (pts: { age: number; balance: number }[]) =>
+    pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(p.age)} ${yScale(p.balance)}`).join(' ');
   const accPath = accumulation.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(p.age)} ${yScale(p.balance)}`).join(' ');
-  const depPath = depletion.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(p.age)} ${yScale(p.balance)}`).join(' ');
+  const goldPath = toPath(goldPts);
+  const redPath = toPath(redPts);
 
   const retirementPoint = data.find(p => p.age === retirementAge);
   const lifeX = lifeExpectancy >= minAge && lifeExpectancy <= maxAge ? xScale(lifeExpectancy) : null;
 
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(r => ({ value: maxBalance * r, y: yScale(maxBalance * r) }));
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(r => {
+    const value = minBalance + valRange * r;
+    return { value, y: yScale(value) };
+  });
   const xTicks: number[] = [];
   for (let age = Math.ceil(minAge / 10) * 10; age <= maxAge; age += 10) xTicks.push(age);
 
@@ -496,6 +541,10 @@ function LifetimeChart({
           <line key={`y-${t.y}`} x1={padding.left} x2={padding.left + innerWidth} y1={padding.top + t.y} y2={padding.top + t.y} stroke="#001E3D" strokeOpacity={0.06} strokeDasharray="2 4" />
         ))}
 
+        {minBalance < 0 && (
+          <line x1={padding.left} x2={padding.left + innerWidth} y1={padding.top + yZero} y2={padding.top + yZero} stroke="#001E3D" strokeOpacity={0.35} strokeWidth={1.5} />
+        )}
+
         {retirementPoint && (
           <line x1={padding.left + xScale(retirementAge)} x2={padding.left + xScale(retirementAge)} y1={padding.top} y2={padding.top + innerHeight} stroke="#C9A961" strokeWidth={1.5} strokeDasharray="4 4" />
         )}
@@ -504,14 +553,24 @@ function LifetimeChart({
           <line x1={padding.left + lifeX} x2={padding.left + lifeX} y1={padding.top} y2={padding.top + innerHeight} stroke="#001E3D" strokeOpacity={0.3} strokeWidth={1} strokeDasharray="2 2" />
         )}
 
-        {accPath && <path d={accPath} fill="none" stroke="#001E3D" strokeWidth={2.5} transform={`translate(${padding.left}, ${padding.top})`} />}
-        {depPath && <path d={depPath} fill="none" stroke="#C9A961" strokeWidth={2.5} transform={`translate(${padding.left}, ${padding.top})`} />}
+        {accPath && <path d={accPath} fill="none" stroke={COLOR_ACC} strokeWidth={2.5} transform={`translate(${padding.left}, ${padding.top})`} />}
+        {goldPath && <path d={goldPath} fill="none" stroke={COLOR_DEP} strokeWidth={2.5} transform={`translate(${padding.left}, ${padding.top})`} />}
+        {redPath && <path d={redPath} fill="none" stroke={COLOR_NEG} strokeWidth={2.5} transform={`translate(${padding.left}, ${padding.top})`} />}
 
         {retirementPoint && (
           <>
             <circle cx={padding.left + xScale(retirementAge)} cy={padding.top + yScale(retirementPoint.balance)} r={5} fill="#C9A961" />
             <text x={padding.left + xScale(retirementAge)} y={padding.top - 6} fontSize={11} fill="#C9A961" textAnchor="middle" fontWeight="600">
               退休 {retirementAge}
+            </text>
+          </>
+        )}
+
+        {crossAge !== null && (
+          <>
+            <circle cx={padding.left + xScale(crossAge)} cy={padding.top + yZero} r={4} fill={COLOR_NEG} />
+            <text x={padding.left + xScale(crossAge)} y={padding.top + yZero - 8} fontSize={11} fill={COLOR_NEG} textAnchor="middle" fontWeight="600">
+              {Math.ceil(crossAge)} 歲見底
             </text>
           </>
         )}
@@ -542,6 +601,11 @@ function LifetimeChart({
         <div className="flex items-center gap-2 text-[#001E3D]/70">
           <span className="w-4 h-0.5 bg-[#C9A961]" />提領期
         </div>
+        {redPath && (
+          <div className="flex items-center gap-2 text-[#C0392B]">
+            <span className="w-4 h-0.5 bg-[#C0392B]" />資產見底(赤字)
+          </div>
+        )}
       </div>
     </div>
   );
