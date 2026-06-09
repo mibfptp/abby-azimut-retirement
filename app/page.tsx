@@ -94,7 +94,7 @@ function calculate(
   let balance = totalAtRetirement;
   let annualExpense = annualExpenseAtRetirement;
   let age = retirementAge;
-  while (balance > 0 && age < 100) {
+  while (balance > 0 && age < lifeExpectancy) {
     balance = balance * (1 + rate) - annualExpense;
     annualExpense = annualExpense * (1 + INFLATION_RATE);
     age++;
@@ -114,11 +114,13 @@ function generateTrajectory(
   currentAge: number,
   retirementAge: number,
   monthlyExpense: number,
+  gender: Gender,
   currentSavings: number,
   monthlySaving: number,
   riskProfile: RiskProfile
 ): YearPoint[] {
   const rate = RETURN_RATES[riskProfile];
+  const lifeExpectancy = LIFE_EXPECTANCY[gender];
   const points: YearPoint[] = [];
   let balance = currentSavings;
   const annualContribution = monthlySaving * 12;
@@ -126,7 +128,7 @@ function generateTrajectory(
   // 退休當年的年支出(現值經通膨複利到退休年),退休後再逐年隨通膨成長
   const annualExpenseAtRetirement = monthlyExpense * Math.pow(1 + INFLATION_RATE, yearsToRetire) * 12;
 
-  for (let age = currentAge; age <= 100; age++) {
+  for (let age = currentAge; age <= lifeExpectancy; age++) {
     if (age < retirementAge) {
       points.push({ age, balance: Math.max(0, Math.round(balance)), phase: 'accumulation' });
       balance = balance * (1 + rate) + annualContribution;
@@ -176,7 +178,7 @@ export default function Home() {
     : null;
 
   const trajectory = canSubmit && selectedRisk
-    ? generateTrajectory(currentAge!, retirementAge!, monthlyExpense!, currentSavings!, monthlySaving!, selectedRisk)
+    ? generateTrajectory(currentAge!, retirementAge!, monthlyExpense!, gender!, currentSavings!, monthlySaving!, selectedRisk)
     : [];
 
   const allResults = canSubmit
@@ -304,29 +306,43 @@ export default function Home() {
           選擇你是哪一種投資人,就能算
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-12">
-          {(['conservative', 'balanced', 'aggressive'] as RiskProfile[]).map((profile, i) => (
-            <button
-              key={profile}
-              type="button"
-              onClick={() => setSelectedRisk(profile)}
-              disabled={!canSubmit}
-              className={`rounded-3xl p-5 transition text-center disabled:opacity-40 disabled:cursor-not-allowed ${
-                selectedRisk === profile
-                  ? 'bg-[#001E3D] text-white'
-                  : i === 1
-                  ? 'bg-[#001E3D]/90 text-white hover:bg-[#001E3D]'
-                  : 'bg-transparent text-[#001E3D] border border-[#001E3D]/30 hover:border-[#001E3D] hover:bg-[#001E3D]/5'
-              }`}
-            >
-              <div className="text-xl font-serif mb-1">{RISK_LABELS[profile]}</div>
-              <div className={`text-xs ${selectedRisk === profile || i === 1 ? 'text-white/70' : 'text-[#001E3D]/60'}`}>
-                {RISK_SUBTITLES[profile]}
-              </div>
-              <div className={`text-xs mt-2 pt-2 border-t ${selectedRisk === profile || i === 1 ? 'text-white/60 border-white/20' : 'text-[#001E3D]/50 border-[#001E3D]/15'}`}>
-                {RISK_VOLATILITY[profile]}
-              </div>
-            </button>
-          ))}
+          {(['conservative', 'balanced', 'aggressive'] as RiskProfile[]).map((profile, i) => {
+            const light = selectedRisk === profile || i === 1;
+            const r = allResults?.[profile];
+            return (
+              <button
+                key={profile}
+                type="button"
+                onClick={() => setSelectedRisk(profile)}
+                disabled={!canSubmit}
+                className={`rounded-3xl p-5 transition text-center disabled:opacity-40 disabled:cursor-not-allowed ${
+                  selectedRisk === profile
+                    ? 'bg-[#001E3D] text-white'
+                    : i === 1
+                    ? 'bg-[#001E3D]/90 text-white hover:bg-[#001E3D]'
+                    : 'bg-transparent text-[#001E3D] border border-[#001E3D]/30 hover:border-[#001E3D] hover:bg-[#001E3D]/5'
+                }`}
+              >
+                <div className="text-xl font-serif mb-1">{RISK_LABELS[profile]}</div>
+                <div className={`text-xs ${light ? 'text-white/70' : 'text-[#001E3D]/60'}`}>
+                  {RISK_SUBTITLES[profile]}
+                </div>
+                <div className={`text-xs mt-2 pt-2 border-t ${light ? 'text-white/60 border-white/20' : 'text-[#001E3D]/50 border-[#001E3D]/15'}`}>
+                  {RISK_VOLATILITY[profile]}
+                </div>
+                {r && (
+                  <div className={`mt-3 pt-3 border-t ${light ? 'border-white/20' : 'border-[#001E3D]/15'}`}>
+                    <div className={`text-sm font-semibold ${light ? 'text-white' : 'text-[#001E3D]'}`}>
+                      準備率 {r.readinessRatio}%
+                    </div>
+                    <div className={`text-xs mt-0.5 ${light ? 'text-white/70' : 'text-[#001E3D]/60'}`}>
+                      {r.gap > 0 ? `缺 ${Math.round(r.gap / 10000).toLocaleString()} 萬` : '夠用'}
+                    </div>
+                  </div>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* 結果區 */}
@@ -353,8 +369,8 @@ export default function Home() {
                 />
                 <Metric
                   label="可撐到"
-                  value={`${Math.min(100, result.canLastUntilAge)}`}
-                  unit={result.canLastUntilAge >= 100 ? '歲+' : '歲'}
+                  value={`${Math.min(LIFE_EXPECTANCY[gender!], result.canLastUntilAge)}`}
+                  unit={result.canLastUntilAge >= LIFE_EXPECTANCY[gender!] ? '歲+' : '歲'}
                 />
               </div>
 
@@ -367,43 +383,13 @@ export default function Home() {
             <div className="bg-[#FAF7EE] rounded-3xl p-6 md:p-8 mb-8">
               <h3 className="text-[#001E3D] mb-2 text-2xl font-serif">你的資產軌跡</h3>
               <p className="text-[#001E3D]/60 text-sm mb-6">
-                從 {currentAge} 歲到 100 歲,你的資產會這樣變化
+                從 {currentAge} 歲到 {LIFE_EXPECTANCY[gender!]} 歲(平均餘命),你的資產會這樣變化
               </p>
               <LifetimeChart
                 data={trajectory}
                 retirementAge={retirementAge!}
                 lifeExpectancy={LIFE_EXPECTANCY[gender!]}
               />
-            </div>
-
-            {/* 三檔對照 */}
-            <h3 className="text-[#001E3D] mb-4 text-center text-2xl font-serif">
-              換一個風險偏好會如何?
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {(['conservative', 'balanced', 'aggressive'] as RiskProfile[]).map(profile => {
-                const r = allResults[profile];
-                const active = profile === result.riskProfile;
-                return (
-                  <button
-                    key={profile}
-                    onClick={() => setSelectedRisk(profile)}
-                    className={`text-left rounded-3xl p-5 transition ${
-                      active
-                        ? 'bg-[#001E3D] text-white'
-                        : 'bg-[#FAF7EE] text-[#001E3D] border border-[#001E3D]/10 hover:border-[#001E3D]/40'
-                    }`}
-                  >
-                    <div className="text-xl font-serif mb-2">{RISK_LABELS[profile]}</div>
-                    <div className={`text-xs mb-3 ${active ? 'text-white/60' : 'text-[#001E3D]/50'}`}>
-                      準備率 {r.readinessRatio}%
-                    </div>
-                    <div className={`text-sm ${active ? 'text-white/80' : 'text-[#001E3D]/70'}`}>
-                      {r.gap > 0 ? `缺 ${Math.round(r.gap / 10000).toLocaleString()} 萬` : '夠用'}
-                    </div>
-                  </button>
-                );
-              })}
             </div>
           </section>
         )}
@@ -576,7 +562,7 @@ function LifetimeChart({
         )}
 
         {lifeX !== null && (
-          <text x={padding.left + lifeX} y={padding.top - 6} fontSize={11} fill="#001E3D" opacity={0.5} textAnchor="middle">
+          <text x={padding.left + lifeX} y={padding.top - 6} fontSize={11} fill="#001E3D" opacity={0.5} textAnchor="end">
             平均餘命 {lifeExpectancy}
           </text>
         )}
