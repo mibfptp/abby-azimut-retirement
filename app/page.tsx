@@ -307,7 +307,8 @@ export default function Home() {
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-12">
           {(['conservative', 'balanced', 'aggressive'] as RiskProfile[]).map((profile, i) => {
-            const light = selectedRisk === profile || i === 1;
+            const isSelected = selectedRisk === profile;
+            const isRecommended = i === 1;
             const r = allResults?.[profile];
             return (
               <button
@@ -315,27 +316,31 @@ export default function Home() {
                 type="button"
                 onClick={() => setSelectedRisk(profile)}
                 disabled={!canSubmit}
-                className={`rounded-3xl p-5 transition text-center disabled:opacity-40 disabled:cursor-not-allowed ${
-                  selectedRisk === profile
-                    ? 'bg-[#001E3D] text-white'
-                    : i === 1
-                    ? 'bg-[#001E3D]/90 text-white hover:bg-[#001E3D]'
-                    : 'bg-transparent text-[#001E3D] border border-[#001E3D]/30 hover:border-[#001E3D] hover:bg-[#001E3D]/5'
+                className={`relative rounded-3xl p-5 transition text-center disabled:opacity-40 disabled:cursor-not-allowed ${
+                  isSelected
+                    ? 'bg-[#001E3D] text-white ring-2 ring-[#C9A961] ring-offset-2 ring-offset-[#F4ECD8] shadow-md'
+                    : 'bg-transparent text-[#001E3D] border border-[#001E3D]/25 hover:border-[#001E3D] hover:bg-[#001E3D]/5'
                 }`}
               >
+                {isSelected && (
+                  <span className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-[#C9A961] text-[#001E3D] text-xs font-bold shadow">✓</span>
+                )}
+                {isRecommended && !isSelected && (
+                  <span className="absolute top-3 right-3 rounded-full bg-[#C9A961] text-[#001E3D] text-[10px] px-2 py-0.5 font-semibold">推薦</span>
+                )}
                 <div className="text-xl font-serif mb-1">{RISK_LABELS[profile]}</div>
-                <div className={`text-xs ${light ? 'text-white/70' : 'text-[#001E3D]/60'}`}>
+                <div className={`text-xs ${isSelected ? 'text-white/70' : 'text-[#001E3D]/60'}`}>
                   {RISK_SUBTITLES[profile]}
                 </div>
-                <div className={`text-xs mt-2 pt-2 border-t ${light ? 'text-white/60 border-white/20' : 'text-[#001E3D]/50 border-[#001E3D]/15'}`}>
+                <div className={`text-xs mt-2 pt-2 border-t ${isSelected ? 'text-white/60 border-white/20' : 'text-[#001E3D]/50 border-[#001E3D]/15'}`}>
                   {RISK_VOLATILITY[profile]}
                 </div>
                 {r && (
-                  <div className={`mt-3 pt-3 border-t ${light ? 'border-white/20' : 'border-[#001E3D]/15'}`}>
-                    <div className={`text-sm font-semibold ${light ? 'text-white' : 'text-[#001E3D]'}`}>
+                  <div className={`mt-3 pt-3 border-t ${isSelected ? 'border-white/20' : 'border-[#001E3D]/15'}`}>
+                    <div className={`text-sm font-semibold ${isSelected ? 'text-white' : 'text-[#001E3D]'}`}>
                       準備率 {r.readinessRatio}%
                     </div>
-                    <div className={`text-xs mt-0.5 ${light ? 'text-white/70' : 'text-[#001E3D]/60'}`}>
+                    <div className={`text-xs mt-0.5 ${isSelected ? 'text-white/70' : 'text-[#001E3D]/60'}`}>
                       {r.gap > 0 ? `缺 ${Math.round(r.gap / 10000).toLocaleString()} 萬` : '夠用'}
                     </div>
                   </div>
