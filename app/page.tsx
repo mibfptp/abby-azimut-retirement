@@ -156,8 +156,8 @@ function parseNum(s: string): number | undefined {
 }
 
 export default function Home() {
-  const [currentAge, setCurrentAge] = useState<number | undefined>(35);
-  const [retirementAge, setRetirementAge] = useState<number | undefined>(65);
+  const [currentAge, setCurrentAge] = useState<number | undefined>(30);
+  const [retirementAge, setRetirementAge] = useState<number | undefined>(60);
   const [monthlyExpense, setMonthlyExpense] = useState<number | undefined>(50000);
   const [gender, setGender] = useState<Gender | null>(null);
   const [currentSavings, setCurrentSavings] = useState<number | undefined>(undefined);
@@ -220,7 +220,7 @@ export default function Home() {
                 inputMode="numeric"
                 value={currentAge ?? ''}
                 onChange={e => setCurrentAge(parseNum(e.target.value))}
-                placeholder="35"
+                placeholder="30"
                 className="w-full bg-transparent border-b border-[#001E3D]/20 focus:border-[#001E3D]/60 text-[#001E3D] text-right py-2 outline-none"
               />
             </Field>
@@ -230,7 +230,7 @@ export default function Home() {
                 inputMode="numeric"
                 value={retirementAge ?? ''}
                 onChange={e => setRetirementAge(parseNum(e.target.value))}
-                placeholder="65"
+                placeholder="60"
                 className="w-full bg-transparent border-b border-[#001E3D]/20 focus:border-[#001E3D]/60 text-[#001E3D] text-right py-2 outline-none"
               />
             </Field>
